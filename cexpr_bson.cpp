@@ -78,12 +78,18 @@ CONSTEXPR void store_key_int (std::uint8_t *a, std::size_t &x, const char *last_
 
    x++;
 
+   bool is_signed = last_val[0] == '-';
+
    uint32_t out = 0;
    uint32_t power = 1;
 
-   for (std::size_t i = 0; i < val_len; i++) {
+   for (std::size_t i = 0; i < val_len - (is_signed ? 1 : 0); i++) {
       out += (last_val[val_len - (i + 1)] - '0') * power;
       power *= 10;
+   }
+
+   if (is_signed) {
+      out = 0xFFFFFFFF - (out - 1);
    }
 
    store_int(out, a + x);
@@ -127,10 +133,10 @@ public:
             if (v[i] == '"') {
                s = state::value_str;
                last_val = v + i + 1;
-            } else if (v[i] >= '0' && v[i] <= '9') {
+            } else if (v[i] == '-' || (v[i] >= '0' && v[i] <= '9')) {
                s = state::value_int;
                last_val = v + i;
-               i--;
+               val_len++;
             }
          } else if (s == state::value_int) {
             if (v[i] >= '0' && v[i] <= '9') {
@@ -176,7 +182,7 @@ private:
 
 int main ()
 {
-   CONSTEXPR auto x = cexpr_bson("\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755");
+   CONSTEXPR auto x = cexpr_bson("\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55");
 
    char *json;
 
