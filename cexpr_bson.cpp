@@ -9,6 +9,7 @@
 //#define CONSTEXPR 
 
 #include "cexpr/bson.hpp"
+#include "cexpr/atoi.hpp"
 
 #define MAKE(name, my_str) \
 struct { \
@@ -27,28 +28,6 @@ enum class state {
    value_str,
    value_post,
 };
-
-template <typename T>
-CONSTEXPR void store_key_val (T &b, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
-{
-   b.append_utf8(last_key, key_len, last_val, val_len);
-}
-
-template <typename T>
-CONSTEXPR void store_key_int (T &b, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
-{
-   bool is_signed = last_val[0] == '-';
-
-   int32_t out = 0;
-   int32_t power = is_signed ? -1 : 1;
-
-   for (std::size_t i = 0; i < val_len - (is_signed ? 1 : 0); i++) {
-      out += (last_val[val_len - (i + 1)] - '0') * power;
-      power *= 10;
-   }
-
-   b.append_int32(last_key, key_len, out);
-}
 
 template <typename T>
 CONSTEXPR std::size_t cexpr_parse(const char *v, uint8_t *a)
@@ -98,7 +77,7 @@ CONSTEXPR std::size_t cexpr_parse(const char *v, uint8_t *a)
             val_len++;
          } else {
             s = state::value_post;
-            store_key_int (b, last_key, last_val, key_len, val_len);
+            b.append_int32(last_key, key_len, cexpr::atoi(last_val, val_len));
             key_len = 0;
             val_len = 0;
             i--;
@@ -106,7 +85,7 @@ CONSTEXPR std::size_t cexpr_parse(const char *v, uint8_t *a)
       } else if (s == state::value_str) {
          if (v[i] == '"') {
             s = state::value_post;
-            store_key_val (b, last_key, last_val, key_len, val_len);
+            b.append_utf8(last_key, key_len, last_val, val_len);
             key_len = 0;
             val_len = 0;
          } else {
@@ -120,7 +99,7 @@ CONSTEXPR std::size_t cexpr_parse(const char *v, uint8_t *a)
    }
 
    if (s == state::value_int) {
-      store_key_int (b, last_key, last_val, key_len, val_len);
+      b.append_int32(last_key, key_len, cexpr::atoi(last_val, val_len));
    }
 
    return b.length();
