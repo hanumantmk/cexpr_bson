@@ -147,17 +147,24 @@ private:
 
 int main ()
 {
-   MAKE(bytes, "\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55");
-
    bson_t bson;
-
-   bson_init_static (&bson, bytes.data(), bytes.len());
-
    char *json;
 
+   MAKE(bytes, "\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55");
+   MAKE(bytes2, "\"a\":1,\"b\":2,\"c\":3");
+   MAKE(bytes3, "\"only need\":\"length\"");
+
+   bson_init_static (&bson, bytes.data(), bytes.len());
    json = bson_as_json (&bson, NULL);
-   std::cout << json << std::endl;
+   std::cout << "bytes1: " << json << std::endl;
    bson_free (json);
+
+   bson_init_static (&bson, bytes2.data(), bytes2.len());
+   json = bson_as_json (&bson, NULL);
+   std::cout << "bytes2: " << json << std::endl;
+   bson_free (json);
+
+   std::cout << "bytes3 len: " << bytes3.len() << std::endl;
 
    return 0;
 }
