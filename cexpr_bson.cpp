@@ -8,6 +8,10 @@
 #define CONSTEXPR constexpr
 //#define CONSTEXPR 
 
+#include "cexpr/bson.hpp"
+
+using namespace cexpr;
+
 enum class state {
    key_pre,
    key_mid,
@@ -18,90 +22,32 @@ enum class state {
    value_post,
 };
 
-enum class type : uint8_t {
-   b_string = 0x02,
-   b_int32 = 0x10,
-};
-
-template <typename T>
-CONSTEXPR void store_int (T t, std::uint8_t *out)
+CONSTEXPR void store_key_val (bson &b, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
 {
-   for (std::size_t i = 0; i < sizeof(T); i++) {
-      out[i] = t & 0xFF;
-      t>>=8;
-   }
+   b.append_utf8(last_key, key_len, last_val, val_len);
 }
 
-CONSTEXPR void store_key_val (std::uint8_t *a, std::size_t &x, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
+CONSTEXPR void store_key_int (bson &b, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
 {
-   a[x] = 2;
-   
-   for (std::size_t j = 0; j < key_len; j++) {
-      x++;
-
-      a[x] = last_key[j];
-   }
-
-   x++;
-   a[x] = 0;
-
-   x++;
-
-   store_int(std::uint32_t(val_len + 1), a + x);
-
-   x += 3;
-
-   for (std::size_t j = 0; j < val_len; j++) {
-      x++;
-
-      a[x] = last_val[j];
-   }
-
-   x++;
-   a[x] = 0;
-
-   x++;
-}
-
-CONSTEXPR void store_key_int (std::uint8_t *a, std::size_t &x, const char *last_key, const char *last_val, std::size_t key_len, std::size_t val_len)
-{
-   a[x] = static_cast<std::uint8_t>(type::b_int32);
-   
-   for (std::size_t j = 0; j < key_len; j++) {
-      x++;
-
-      a[x] = last_key[j];
-   }
-
-   x++;
-   a[x] = 0;
-
-   x++;
-
    bool is_signed = last_val[0] == '-';
 
-   uint32_t out = 0;
-   uint32_t power = 1;
+   int32_t out = 0;
+   int32_t power = is_signed ? -1 : 1;
 
    for (std::size_t i = 0; i < val_len - (is_signed ? 1 : 0); i++) {
       out += (last_val[val_len - (i + 1)] - '0') * power;
       power *= 10;
    }
 
-   if (is_signed) {
-      out = 0xFFFFFFFF - (out - 1);
-   }
-
-   store_int(out, a + x);
-
-   x += 4;
+   b.append_int32(last_key, key_len, out);
 }
 
 class cexpr_bson {
 public:
    template <std::size_t N>
    CONSTEXPR cexpr_bson(const char (&v)[N]) : a() {
-      std::size_t x = 0;
+      bson b(a);
+
       std::size_t key_len = 0;
       std::size_t val_len = 0;
 
@@ -109,9 +55,6 @@ public:
       const char *last_val = nullptr;
 
       state s = state::key_pre;
-
-      /* skip the beginning */
-      x += 4;
 
       for (std::size_t i = 0; i < N; i++) {
          if (s == state::key_pre) {
@@ -143,7 +86,7 @@ public:
                val_len++;
             } else {
                s = state::value_post;
-               store_key_int (a, x, last_key, last_val, key_len, val_len);
+               store_key_int (b, last_key, last_val, key_len, val_len);
                key_len = 0;
                val_len = 0;
                i--;
@@ -151,7 +94,7 @@ public:
          } else if (s == state::value_str) {
             if (v[i] == '"') {
                s = state::value_post;
-               store_key_val (a, x, last_key, last_val, key_len, val_len);
+               store_key_val (b, last_key, last_val, key_len, val_len);
                key_len = 0;
                val_len = 0;
             } else {
@@ -165,10 +108,9 @@ public:
       }
 
       if (s == state::value_int) {
-         store_key_int (a, x, last_key, last_val, key_len, val_len);
+         store_key_int (b, last_key, last_val, key_len, val_len);
       }
 
-      store_int (uint32_t(x+1), a);
    }
 
    const uint8_t *data () const {
@@ -179,16 +121,15 @@ private:
    std::uint8_t a[256];
 };
 
-
 int main ()
 {
    CONSTEXPR auto x = cexpr_bson("\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55");
 
-   char *json;
-
    bson_t bson;
 
    bson_init_static (&bson, x.data(), *(int32_t*)x.data());
+
+   char *json;
 
    json = bson_as_json (&bson, NULL);
    std::cout << json << std::endl;
