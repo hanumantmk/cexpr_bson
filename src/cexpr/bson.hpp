@@ -60,10 +60,48 @@ class bson {
       data_view(bytes).store_le_uint32((ptr - bytes) + 1);
    }
 
+   CONSTEXPR std::size_t length() const {
+      return (ptr - bytes) + 1;
+   }
+
    private:
 
    uint8_t *bytes;
    uint8_t *ptr;
+};
+
+class bson_sizer {
+   public:
+   CONSTEXPR bson_sizer(uint8_t *) : len(5) {
+   }
+
+   CONSTEXPR void append_int32(const char *key, std::size_t klen, int32_t v) {
+      append_prefix(key, klen, bson_type::b_int32);
+
+      len += 4;
+   }
+
+   CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *v, std::size_t vlen) {
+      append_prefix(key, klen, bson_type::b_utf8);
+
+      len += 4;
+      len += vlen;
+      len++;
+   }
+
+   CONSTEXPR void append_prefix(const char *key, std::size_t klen, bson_type bt)
+   {
+      len++;
+      len += klen;
+      len++;
+   }
+
+   CONSTEXPR std::size_t length() const {
+      return len;
+   }
+
+   private:
+   std::size_t len;
 };
 
 }
