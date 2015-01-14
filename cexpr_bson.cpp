@@ -14,7 +14,7 @@
 struct { \
    CONSTEXPR static const char *str() { return my_str; }; \
 } MAGIC_IMPL_##name; \
-CONSTEXPR auto name = cexpr_bson<decltype(MAGIC_IMPL_##name)>();
+CONSTEXPR auto name = cexpr_bson<decltype(MAGIC_IMPL_##name)>()
 
 using namespace cexpr;
 
@@ -147,7 +147,7 @@ private:
 
 int main ()
 {
-   MAKE(bytes, "\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55")
+   MAKE(bytes, "\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55");
 
    bson_t bson;
 
