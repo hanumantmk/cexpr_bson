@@ -215,7 +215,6 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
             integer += value[0] - '0';
          }
       } else if (value[0] == '.') {
-         std::cout << "in fraction with: " << v << std::endl;
          in_fraction = true;
          floating_compare = 1;
       }
@@ -224,54 +223,64 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
    if (in_fraction) {
       mantissa = integer;
 
-      while (floating) {
-         std::cout << "floating: " << floating << " compare: " << floating_compare << " mantissa " << mantissa << std::endl;
-         floating <<= 1;
-         mantissa <<= 1;
-
-         if (floating >= floating_compare) {
-            floating -= floating_compare;
-            mantissa |= 1;
-         }
-      }
-
-      int mantissa_bits = 0;
       uint64_t tmp = mantissa;
 
+      int mantissa_bits = 0;
       while (tmp) {
          mantissa_bits++;
          tmp >>= 1;
       }
 
-      /* TODO more unfucking */
-      std::cout << "mantissa: " << mantissa << " mantissa_bits: " << mantissa_bits << std::endl;
+      uint32_t zero_float_shifts = 0;
+      bool non_zero_float_shift = integer != 0;
 
-      mantissa_bits--;
-      uint64_t bytes = mantissa - (1 << mantissa_bits);
+      while (floating && mantissa_bits < 52) {
+         floating <<= 1;
+         mantissa <<= 1;
 
-      bytes <<= (52 - mantissa_bits);
-      uint64_t exp = 1022;
+         if (floating >= floating_compare) {
+            non_zero_float_shift = true;
+            floating -= floating_compare;
+            mantissa |= 1;
+         } else if (! non_zero_float_shift) {
+            zero_float_shifts++;
+         }
 
-      while (integer) {
-         exp++;
-         integer >>= 1;
-      }
-
-      bytes |= exp << 52;
-
-      /* todo signs */
-//      bytes |= 1ul << 63;
-
-      std::cout << "bytes: ";
-      for (int i = 63; i >= 0; i--) {
-         if (bytes & (1ul << i)) {
-            std::cout << 1;
-         } else {
-            std::cout << 0;
+         if (non_zero_float_shift) {
+            mantissa_bits++;
          }
       }
 
-      std::cout << std::endl;
+      if (mantissa_bits == 52) {
+         mantissa |= 1;
+      }
+
+      mantissa_bits--;
+
+      uint64_t bytes = mantissa;
+
+      bytes = mantissa - (1ul << mantissa_bits);
+
+      bytes <<= (52 - mantissa_bits);
+
+      uint64_t exp = 1022;
+
+      if (integer) {
+         while (integer) {
+            exp++;
+            integer >>= 1;
+         }
+      } else {
+         exp -= zero_float_shifts;
+      }
+
+      exp <<= 52;
+
+
+      bytes |= exp;
+      if (is_negative) {
+         bytes |= 1ul << 63;
+      }
 
       uint8_t buf[8] = {
          static_cast<uint8_t>((bytes & 0x00000000000000FFul) >> 0),
@@ -283,12 +292,6 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
          static_cast<uint8_t>((bytes & 0x00FF000000000000ul) >> 48),
          static_cast<uint8_t>((bytes & 0xFF00000000000000ul) >> 56),
       };
-
-      double x = 0, y = 0;
-      std::memcpy(&x, &bytes, 8);
-      std::memcpy(&y, buf, 8);
-
-      std::cout << "x: " << x << " y: " << y << std::endl;
 
       b.append_bytes(key, klen, bson_type::b_double, buf, 8);
    } else {
