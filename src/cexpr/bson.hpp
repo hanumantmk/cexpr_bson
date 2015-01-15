@@ -19,6 +19,7 @@ CONSTEXPR auto name = from_json<MAGIC_IMPL_##name>()
 namespace cexpr {
 
 enum class bson_type : uint8_t {
+   b_double = 0x01,
    b_utf8 = 0x02,
    b_doc = 0x03,
    b_array = 0x04,
@@ -39,6 +40,16 @@ class bson {
 
       data_view(ptr).store_le_int32(v);
       ptr += 4;
+
+      update_len();
+   }
+
+   CONSTEXPR void append_bytes(const char *key, std::size_t klen, bson_type bt, uint8_t *v, std::size_t vlen) {
+      append_prefix(key, klen, bt);
+
+      for (std::size_t i = 0; i < vlen; i++) {
+         *ptr++ = v[i];
+      }
 
       update_len();
    }
@@ -124,6 +135,12 @@ class bson_sizer {
       len += 4;
    }
 
+   CONSTEXPR void append_bytes(const char *key, std::size_t klen, bson_type bt, uint8_t *, std::size_t vlen) {
+      append_prefix(key, klen, bt);
+
+      len += vlen;
+   }
+
    CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *, std::size_t vlen) {
       append_prefix(key, klen, bson_type::b_utf8);
 
@@ -168,6 +185,118 @@ class bson_sizer {
 };
 
 template <typename T>
+CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v, std::size_t vlen)
+{
+   const char *value = v;
+   const char *end = value + vlen;
+   bool is_negative = false;
+   bool in_fraction = false;
+//   uint32_t exponent = 0;
+   uint64_t integer = 0;
+   uint64_t floating = 0;
+   uint64_t floating_compare = 0;
+   uint64_t mantissa = 0;
+
+   if (value[0] == '-') {
+      is_negative = true;
+      value++;
+   } else if (value[0] == '+') {
+      value++;
+   }
+
+   for (;value != end;value++) {
+      if (value[0] >= '0' && value[0] <= '9') {
+         if (in_fraction) {
+            floating_compare *= 10;
+            floating *= 10;
+            floating += value[0] - '0';
+         } else {
+            integer *= 10;
+            integer += value[0] - '0';
+         }
+      } else if (value[0] == '.') {
+         std::cout << "in fraction with: " << v << std::endl;
+         in_fraction = true;
+         floating_compare = 1;
+      }
+   }
+
+   if (in_fraction) {
+      mantissa = integer;
+
+      while (floating) {
+         std::cout << "floating: " << floating << " compare: " << floating_compare << " mantissa " << mantissa << std::endl;
+         floating <<= 1;
+         mantissa <<= 1;
+
+         if (floating >= floating_compare) {
+            floating -= floating_compare;
+            mantissa |= 1;
+         }
+      }
+
+      int mantissa_bits = 0;
+      uint64_t tmp = mantissa;
+
+      while (tmp) {
+         mantissa_bits++;
+         tmp >>= 1;
+      }
+
+      /* TODO more unfucking */
+      std::cout << "mantissa: " << mantissa << " mantissa_bits: " << mantissa_bits << std::endl;
+
+      mantissa_bits--;
+      uint64_t bytes = mantissa - (1 << mantissa_bits);
+
+      bytes <<= (52 - mantissa_bits);
+      uint64_t exp = 1022;
+
+      while (integer) {
+         exp++;
+         integer >>= 1;
+      }
+
+      bytes |= exp << 52;
+
+      /* todo signs */
+//      bytes |= 1ul << 63;
+
+      std::cout << "bytes: ";
+      for (int i = 63; i >= 0; i--) {
+         if (bytes & (1ul << i)) {
+            std::cout << 1;
+         } else {
+            std::cout << 0;
+         }
+      }
+
+      std::cout << std::endl;
+
+      uint8_t buf[8] = {
+         static_cast<uint8_t>((bytes & 0x00000000000000FFul) >> 0),
+         static_cast<uint8_t>((bytes & 0x000000000000FF00ul) >> 8),
+         static_cast<uint8_t>((bytes & 0x0000000000FF0000ul) >> 16),
+         static_cast<uint8_t>((bytes & 0x00000000FF000000ul) >> 24),
+         static_cast<uint8_t>((bytes & 0x000000FF00000000ul) >> 32),
+         static_cast<uint8_t>((bytes & 0x0000FF0000000000ul) >> 40),
+         static_cast<uint8_t>((bytes & 0x00FF000000000000ul) >> 48),
+         static_cast<uint8_t>((bytes & 0xFF00000000000000ul) >> 56),
+      };
+
+      double x = 0, y = 0;
+      std::memcpy(&x, &bytes, 8);
+      std::memcpy(&y, buf, 8);
+
+      std::cout << "x: " << x << " y: " << y << std::endl;
+
+      b.append_bytes(key, klen, bson_type::b_double, buf, 8);
+   } else {
+      b.append_int32(key, klen, atoi(v, vlen));
+   }
+}
+
+template <typename T>
 CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, int r, bool is_array)
 {
    using namespace jsmn;
@@ -208,7 +337,7 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
                case '7':
                case '8':
                case '9':
-                  b.append_int32(key, key_len, atoi(value, value_len));
+                  append_num(b, key, key_len, value, value_len);
                   break;
             }
 
