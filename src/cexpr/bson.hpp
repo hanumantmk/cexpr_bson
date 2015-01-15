@@ -10,11 +10,11 @@
 #pragma once
 
 #define CEXPR_BSON_FROM_JSON(name, my_str) \
-struct { \
+struct MAGIC_IMPL_##name { \
    CONSTEXPR static const char *str() { return my_str; }; \
    CONSTEXPR static std::size_t str_len() { return sizeof(my_str); }; \
-} MAGIC_IMPL_##name; \
-CONSTEXPR auto name = from_json<decltype(MAGIC_IMPL_##name)>()
+}; \
+CONSTEXPR auto name = from_json<MAGIC_IMPL_##name>()
 
 namespace cexpr {
 
@@ -274,13 +274,37 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
    }
 }
 
-template <typename T>
-CONSTEXPR std::size_t parse(T b, const char *v, std::size_t len)
+template <typename S>
+CONSTEXPR std::size_t parse_toks()
+{
+   using namespace jsmn;
+   jsmn_parser p = {};
+
+   jsmn_init(&p);
+
+   int r = jsmn_parse(&p, S::str(), S::str_len(), nullptr, 0);
+
+   if (r < 0) {
+      return 0;
+   } else {
+      return r;
+   }
+}
+
+template <typename T, typename S>
+CONSTEXPR std::size_t parse(T b)
 {
    using namespace jsmn;
 
+   const char *v = S::str();
+   std::size_t len = S::str_len();
+
    jsmn_parser p = {};
-   jsmntok_t toks[1024] = {};
+#ifdef CONSTEXPR_OFF
+   jsmntok_t toks[1000] = {};
+#else
+   jsmntok_t toks[parse_toks<S>()] = {};
+#endif
 
    jsmn_init(&p);
 
@@ -302,11 +326,11 @@ class from_json {
 public:
 #ifdef CONSTEXPR_OFF
    CONSTEXPR from_json() : a(), l(0) {
-      l = parse<bson>(bson(a), T::str(), T::str_len());
+      l = parse<bson, T>(bson(a));
    }
 #else
    CONSTEXPR from_json() : a() {
-      parse<bson>(bson(a), T::str(), T::str_len());
+      parse<bson, T>(bson(a));
    }
 #endif
 
@@ -327,7 +351,7 @@ private:
    std::uint8_t a[1024];
    std::size_t l;
 #else
-   std::uint8_t a[parse<bson_sizer>(bson_sizer(), T::str(), T::str_len())];
+   std::uint8_t a[parse<bson_sizer, T>(bson_sizer())];
 #endif
 };
 
