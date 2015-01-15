@@ -19,7 +19,7 @@ int main ()
    char *json;
 
    CEXPR_BSON_FROM_JSON(bytes, "{\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55}");
-   CEXPR_BSON_FROM_JSON(bytes2, "{\"a\":1,\"b\":2,\"c\":3,\"d\" : { \"key\" : \"value\", \"2nd\" : 35 } }");
+   CEXPR_BSON_FROM_JSON(bytes2, "{\"a\":1,\"b\":2,\"c\":3,\"d\" : { \"key\" : \"value\", \"2nd\" : 35, \"array\" : [1, 2, 3] } }");
    CEXPR_BSON_FROM_JSON(bytes3, "{\"only need\":\"length\"}");
 
    bson_init_static (&bson, bytes.data(), bytes.len());

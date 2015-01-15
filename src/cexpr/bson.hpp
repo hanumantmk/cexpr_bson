@@ -1,10 +1,11 @@
-//#define CONSTEXPR constexpr
+#define CONSTEXPR constexpr
 
 #include <cstdint>
 #include <cstring>
 #include "cexpr/data_view.hpp"
 #include "cexpr/jsmn.h"
 #include "cexpr/atoi.hpp"
+#include "cexpr/itoa.hpp"
 
 #pragma once
 
@@ -20,6 +21,7 @@ namespace cexpr {
 enum class bson_type : uint8_t {
    b_utf8 = 0x02,
    b_doc = 0x03,
+   b_array = 0x04,
    b_int32 = 0x10,
 };
 
@@ -42,7 +44,6 @@ class bson {
    }
 
    CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *v, std::size_t vlen) {
-//      printf("key: %.*s, value: %.*s\n", (int)klen, key, (int)vlen, v);
       append_prefix(key, klen, bson_type::b_utf8);
 
       data_view(ptr).store_le_uint32(vlen + 1);
@@ -68,6 +69,18 @@ class bson {
    CONSTEXPR void append_document_end(bson& b) {
       ptr = b.ptr + 1;
       update_len();
+   }
+
+   CONSTEXPR void append_array_begin(const char *key, std::size_t klen, bson& b) {
+      append_prefix(key, klen, bson_type::b_array);
+
+      b.bytes = ptr;
+      b.ptr = b.bytes + 4;
+      b.update_len();
+   }
+
+   CONSTEXPR void append_array_end(bson& b) {
+      append_document_end(b);
    }
 
    CONSTEXPR void append_prefix(const char *key, std::size_t klen, bson_type bt)
@@ -112,7 +125,7 @@ class bson_sizer {
    }
 
    CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *, std::size_t vlen) {
-      append_prefix(key, klen, bson_type::b_doc);
+      append_prefix(key, klen, bson_type::b_utf8);
 
       len += 4;
       len += vlen;
@@ -120,12 +133,22 @@ class bson_sizer {
    }
 
    CONSTEXPR void append_document_begin(const char *key, std::size_t klen, bson_sizer& bs) {
-      append_prefix(key, klen, bson_type::b_utf8);
+      append_prefix(key, klen, bson_type::b_doc);
 
       bs.len = 5;
    }
 
    CONSTEXPR void append_document_end(bson_sizer& bs) {
+      len += bs.length();
+   }
+
+   CONSTEXPR void append_array_begin(const char *key, std::size_t klen, bson_sizer& bs) {
+      append_prefix(key, klen, bson_type::b_array);
+
+      bs.len = 5;
+   }
+
+   CONSTEXPR void append_array_end(bson_sizer& bs) {
       len += bs.length();
    }
 
@@ -145,7 +168,7 @@ class bson_sizer {
 };
 
 template <typename T>
-CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, int r)
+CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, int r, bool is_array)
 {
    using namespace jsmn;
 
@@ -154,9 +177,19 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
    std::size_t key_len = 0;
    std::size_t value_len = 0;
 
+   std::size_t index = 0;
+
    bool lf_key = true;
 
+   itoa itoa(index);
+
    for (; i < r; i++) {
+      if (is_array) {
+         itoa = index;
+         key = itoa.c_str();
+         key_len = itoa.length();
+      }
+
       switch (toks[i].type) {
          case JSMN_PRIMITIVE:
             value = v + toks[i].start;
@@ -179,6 +212,7 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
                   break;
             }
 
+            index++;
             lf_key = true;
             break;
          case JSMN_OBJECT:
@@ -192,16 +226,33 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
                i++;
 
                b.append_document_begin(key, key_len, child);
-               parse_impl(child, toks, v, i, i + children);
+               parse_impl(child, toks, v, i, i + children, false);
                b.append_document_end(child);
 
                lf_key = true;
+               index++;
             }
             break;
          case JSMN_ARRAY:
+            {
+               T child;
+               value = v + toks[i].start;
+               value_len = toks[i].end - toks[i].start;
+
+               std::size_t children = toks[i].size;
+
+               i++;
+
+               b.append_array_begin(key, key_len, child);
+               parse_impl(child, toks, v, i, i + children, true);
+               b.append_array_end(child);
+
+               lf_key = true;
+               index++;
+            }
             break;
          case JSMN_STRING:
-            if (lf_key) {
+            if (! is_array && lf_key) {
                key = v + toks[i].start;
                key_len = toks[i].end - toks[i].start;
 
@@ -213,6 +264,7 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
                b.append_utf8(key, key_len, value, value_len);
 
                lf_key = true;
+               index++;
             }
             break;
          default:
@@ -240,7 +292,7 @@ CONSTEXPR std::size_t parse(T b, const char *v, std::size_t len)
 
    int i = 1;
 
-   parse_impl(b, toks, v, i, r);
+   parse_impl(b, toks, v, i, r, false);
 
    return b.length();
 }
