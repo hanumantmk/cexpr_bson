@@ -23,6 +23,7 @@ enum class bson_type : uint8_t {
    b_utf8 = 0x02,
    b_doc = 0x03,
    b_array = 0x04,
+   b_bool = 0x08,
    b_int32 = 0x10,
 };
 
@@ -65,6 +66,14 @@ class bson {
       }
 
       *ptr++ = 0;
+
+      update_len();
+   }
+
+   CONSTEXPR void append_bool(const char *key, std::size_t klen, bool v) {
+      append_prefix(key, klen, bson_type::b_bool);
+
+      *ptr++ = v ? 0x01 : 0x00;
 
       update_len();
    }
@@ -146,6 +155,12 @@ class bson_sizer {
 
       len += 4;
       len += vlen;
+      len++;
+   }
+
+   CONSTEXPR void append_bool(const char *key, std::size_t klen, bool v) {
+      append_prefix(key, klen, bson_type::b_bool);
+
       len++;
    }
 
@@ -343,6 +358,14 @@ CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, i
                case '8':
                case '9':
                   append_num(b, key, key_len, value, value_len);
+                  break;
+               case 't':
+               case 'T':
+                  b.append_bool(key, key_len, true);
+                  break;
+               case 'f':
+               case 'F':
+                  b.append_bool(key, key_len, false);
                   break;
             }
 
