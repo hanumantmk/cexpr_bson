@@ -5,6 +5,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#define JSMN_PARENT_LINKS
+#define JSMN_STRICT
+
 namespace cexpr {
 namespace jsmn {
 
