@@ -65,6 +65,15 @@ class bson_iter {
                ns += 8;
                break;
             case 0x02:
+            {
+               const uint8_t *p = ptr + ns;
+               uint32_t x = 0;
+               std::memcpy (&x, p, 4);
+
+               ns += x + 4;
+
+               break;
+            }
             case 0x03:
             case 0x04:
             {
@@ -72,7 +81,7 @@ class bson_iter {
                uint32_t x = 0;
                std::memcpy (&x, p, 4);
 
-               ns += x + 4;
+               ns += x;
 
                break;
             }
