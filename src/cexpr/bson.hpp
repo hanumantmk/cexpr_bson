@@ -1,4 +1,4 @@
-#define CONSTEXPR constexpr
+//#define CONSTEXPR constexpr
 
 #include <cstdint>
 #include <cstring>
