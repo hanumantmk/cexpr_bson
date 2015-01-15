@@ -251,6 +251,8 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
          }
       }
 
+      /* TODO: this is almost certainly wrong.  Find out how rounding is
+       * actually supposed to work for repeating fractions */
       if (mantissa_bits == 52) {
          mantissa |= 1;
       }
