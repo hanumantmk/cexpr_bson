@@ -315,16 +315,9 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
          bytes |= 1ul << 63;
       }
 
-      uint8_t buf[8] = {
-         static_cast<uint8_t>((bytes & 0x00000000000000FFul) >> 0),
-         static_cast<uint8_t>((bytes & 0x000000000000FF00ul) >> 8),
-         static_cast<uint8_t>((bytes & 0x0000000000FF0000ul) >> 16),
-         static_cast<uint8_t>((bytes & 0x00000000FF000000ul) >> 24),
-         static_cast<uint8_t>((bytes & 0x000000FF00000000ul) >> 32),
-         static_cast<uint8_t>((bytes & 0x0000FF0000000000ul) >> 40),
-         static_cast<uint8_t>((bytes & 0x00FF000000000000ul) >> 48),
-         static_cast<uint8_t>((bytes & 0xFF00000000000000ul) >> 56),
-      };
+      uint8_t buf[8] = {};
+
+      data_view(buf).store_le_uint64(bytes);
 
       b.append_bytes(key, klen, bson_type::b_double, buf, 8);
    } else {
