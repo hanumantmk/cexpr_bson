@@ -50,6 +50,74 @@ class data_view {
 
          store_le_uint64(b);
       }
+
+      CONSTEXPR void store_le_double(double v) {
+         bool is_negative = v < 0;
+
+         if (is_negative) {
+            v = -v;
+         }
+
+         uint64_t mantissa = 0;
+         {
+            double tmp = v;
+
+            while (double(int64_t(tmp)) != tmp) {
+               tmp *= 2;
+            }
+
+            while (double(int64_t(tmp)) == tmp) {
+               tmp /= 2;
+            }
+            tmp *= 2;
+
+            mantissa = tmp;
+         }
+
+         uint64_t exp = 1023;
+         {
+            double tmp = v;
+
+            while (tmp > 1) {
+               tmp /= 2;
+               exp++;
+            }
+
+            while (tmp < 1) {
+               tmp *= 2;
+               exp--;
+            }
+         }
+
+         int mantissa_bits = 0;
+         {
+            uint64_t tmp = mantissa;
+
+            while (tmp) {
+               mantissa_bits++;
+               tmp >>= 1;
+            }
+         }
+
+         mantissa_bits--;
+
+         uint64_t bytes = 0;
+
+         bytes = mantissa - (1ul << mantissa_bits);
+
+         bytes <<= (52 - mantissa_bits);
+
+         exp <<= 52;
+
+         bytes |= exp;
+
+         if (is_negative) {
+            bytes |= 1ul << 63;
+         }
+
+         store_le_uint64(bytes);
+      }
+
    private:
       uint8_t *bytes;
 };

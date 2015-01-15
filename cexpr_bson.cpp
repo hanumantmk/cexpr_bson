@@ -10,6 +10,7 @@
 //#define CONSTEXPR_OFF
 
 #include "cexpr/bson.hpp"
+#include "cexpr/atof.hpp"
 
 using namespace cexpr;
 

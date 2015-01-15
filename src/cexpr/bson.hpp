@@ -5,6 +5,7 @@
 #include "cexpr/data_view.hpp"
 #include "cexpr/jsmn.h"
 #include "cexpr/atoi.hpp"
+#include "cexpr/atof.hpp"
 #include "cexpr/itoa.hpp"
 
 #pragma once
@@ -56,12 +57,11 @@ class bson {
       update_len();
    }
 
-   CONSTEXPR void append_bytes(const char *key, std::size_t klen, bson_type bt, uint8_t *v, std::size_t vlen) {
-      append_prefix(key, klen, bt);
+   CONSTEXPR void append_double(const char *key, std::size_t klen, double f) {
+      append_prefix(key, klen, bson_type::b_double);
 
-      for (std::size_t i = 0; i < vlen; i++) {
-         *ptr++ = v[i];
-      }
+      data_view(ptr).store_le_double(f);
+      ptr += 8;
 
       update_len();
    }
@@ -167,10 +167,10 @@ class bson_sizer {
       len += 8;
    }
 
-   CONSTEXPR void append_bytes(const char *key, std::size_t klen, bson_type bt, uint8_t *, std::size_t vlen) {
-      append_prefix(key, klen, bt);
+   CONSTEXPR void append_double(const char *key, std::size_t klen, double) {
+      append_prefix(key, klen, bson_type::b_double);
 
-      len += vlen;
+      len += 8;
    }
 
    CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *, std::size_t vlen) {
@@ -229,108 +229,18 @@ class bson_sizer {
 template <typename T>
 CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v, std::size_t vlen)
 {
-   const char *value = v;
-   const char *end = value + vlen;
-   bool is_negative = false;
-   bool in_fraction = false;
-//   uint32_t exponent = 0;
-   uint64_t integer = 0;
-   uint64_t floating = 0;
-   uint64_t floating_compare = 0;
-   uint64_t mantissa = 0;
+   bool is_fraction = false;
 
-   if (value[0] == '-') {
-      is_negative = true;
-      value++;
-   } else if (value[0] == '+') {
-      value++;
-   }
-
-   for (;value != end;value++) {
-      if (value[0] >= '0' && value[0] <= '9') {
-         if (in_fraction) {
-            floating_compare *= 10;
-            floating *= 10;
-            floating += value[0] - '0';
-         } else {
-            integer *= 10;
-            integer += value[0] - '0';
-         }
-      } else if (value[0] == '.') {
-         in_fraction = true;
-         floating_compare = 1;
+   for (std::size_t i = 0; i < vlen; i++) {
+      if (v[i] == '.') {
+         is_fraction = true;
       }
    }
 
-   if (in_fraction) {
-      mantissa = integer;
+   if (is_fraction) {
+      double f = atof(v, vlen);
 
-      uint64_t tmp = mantissa;
-
-      int mantissa_bits = 0;
-      while (tmp) {
-         mantissa_bits++;
-         tmp >>= 1;
-      }
-
-      uint32_t zero_float_shifts = 0;
-      bool non_zero_float_shift = integer != 0;
-
-      while (floating && mantissa_bits < 52) {
-         floating <<= 1;
-         mantissa <<= 1;
-
-         if (floating >= floating_compare) {
-            non_zero_float_shift = true;
-            floating -= floating_compare;
-            mantissa |= 1;
-         } else if (! non_zero_float_shift) {
-            zero_float_shifts++;
-         }
-
-         if (non_zero_float_shift) {
-            mantissa_bits++;
-         }
-      }
-
-      /* TODO: this is almost certainly wrong.  Find out how rounding is
-       * actually supposed to work for repeating fractions */
-      if (mantissa_bits == 52) {
-         mantissa |= 1;
-      }
-
-      mantissa_bits--;
-
-      uint64_t bytes = mantissa;
-
-      bytes = mantissa - (1ul << mantissa_bits);
-
-      bytes <<= (52 - mantissa_bits);
-
-      uint64_t exp = 1022;
-
-      if (integer) {
-         while (integer) {
-            exp++;
-            integer >>= 1;
-         }
-      } else {
-         exp -= zero_float_shifts;
-      }
-
-      exp <<= 52;
-
-
-      bytes |= exp;
-      if (is_negative) {
-         bytes |= 1ul << 63;
-      }
-
-      uint8_t buf[8] = {};
-
-      data_view(buf).store_le_uint64(bytes);
-
-      b.append_bytes(key, klen, bson_type::b_double, buf, 8);
+      b.append_double(key, klen, f);
    } else {
       int64_t x = atoi(v, vlen);
       int64_t y = x;
