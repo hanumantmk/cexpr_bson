@@ -3,18 +3,31 @@
 #include <cstdint>
 #include <cstring>
 #include "cexpr/data_view.hpp"
+#include "cexpr/jsmn.h"
+#include "cexpr/atoi.hpp"
 
 #pragma once
+
+#define CEXPR_BSON_FROM_JSON(name, my_str) \
+struct { \
+   CONSTEXPR static const char *str() { return my_str; }; \
+   CONSTEXPR static std::size_t str_len() { return sizeof(my_str); }; \
+} MAGIC_IMPL_##name; \
+CONSTEXPR auto name = from_json<decltype(MAGIC_IMPL_##name)>()
 
 namespace cexpr {
 
 enum class bson_type : uint8_t {
    b_utf8 = 0x02,
+   b_doc = 0x03,
    b_int32 = 0x10,
 };
 
 class bson {
    public:
+   CONSTEXPR bson() : bytes(nullptr), ptr(nullptr) {
+   }
+
    CONSTEXPR bson(uint8_t *b) : bytes(b), ptr(b + 4) {
       update_len();
    }
@@ -29,6 +42,7 @@ class bson {
    }
 
    CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *v, std::size_t vlen) {
+//      printf("key: %.*s, value: %.*s\n", (int)klen, key, (int)vlen, v);
       append_prefix(key, klen, bson_type::b_utf8);
 
       data_view(ptr).store_le_uint32(vlen + 1);
@@ -40,6 +54,19 @@ class bson {
 
       *ptr++ = 0;
 
+      update_len();
+   }
+
+   CONSTEXPR void append_document_begin(const char *key, std::size_t klen, bson& b) {
+      append_prefix(key, klen, bson_type::b_doc);
+
+      b.bytes = ptr;
+      b.ptr = b.bytes + 4;
+      b.update_len();
+   }
+
+   CONSTEXPR void append_document_end(bson& b) {
+      ptr = b.ptr + 1;
       update_len();
    }
 
@@ -72,24 +99,37 @@ class bson {
 
 class bson_sizer {
    public:
+   CONSTEXPR bson_sizer() : len(5) {
+   }
+
    CONSTEXPR bson_sizer(uint8_t *) : len(5) {
    }
 
-   CONSTEXPR void append_int32(const char *key, std::size_t klen, int32_t v) {
+   CONSTEXPR void append_int32(const char *key, std::size_t klen, int32_t) {
       append_prefix(key, klen, bson_type::b_int32);
 
       len += 4;
    }
 
-   CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *v, std::size_t vlen) {
-      append_prefix(key, klen, bson_type::b_utf8);
+   CONSTEXPR void append_utf8(const char *key, std::size_t klen, const char *, std::size_t vlen) {
+      append_prefix(key, klen, bson_type::b_doc);
 
       len += 4;
       len += vlen;
       len++;
    }
 
-   CONSTEXPR void append_prefix(const char *key, std::size_t klen, bson_type bt)
+   CONSTEXPR void append_document_begin(const char *key, std::size_t klen, bson_sizer& bs) {
+      append_prefix(key, klen, bson_type::b_utf8);
+
+      bs.len = 5;
+   }
+
+   CONSTEXPR void append_document_end(bson_sizer& bs) {
+      len += bs.length();
+   }
+
+   CONSTEXPR void append_prefix(const char *, std::size_t klen, bson_type)
    {
       len++;
       len += klen;
@@ -102,6 +142,141 @@ class bson_sizer {
 
    private:
    std::size_t len;
+};
+
+template <typename T>
+CONSTEXPR void parse_impl(T& b, jsmn::jsmntok_t *toks, const char * v, int& i, int r)
+{
+   using namespace jsmn;
+
+   const char *key = nullptr;
+   const char *value = nullptr;
+   std::size_t key_len = 0;
+   std::size_t value_len = 0;
+
+   bool lf_key = true;
+
+   for (; i < r; i++) {
+      switch (toks[i].type) {
+         case JSMN_PRIMITIVE:
+            value = v + toks[i].start;
+            value_len = toks[i].end - toks[i].start;
+
+            switch (value[0]) {
+               case '+':
+               case '-':
+               case '0':
+               case '1':
+               case '2':
+               case '3':
+               case '4':
+               case '5':
+               case '6':
+               case '7':
+               case '8':
+               case '9':
+                  b.append_int32(key, key_len, atoi(value, value_len));
+                  break;
+            }
+
+            lf_key = true;
+            break;
+         case JSMN_OBJECT:
+            {
+               T child;
+               value = v + toks[i].start;
+               value_len = toks[i].end - toks[i].start;
+
+               std::size_t children = toks[i].size * 2;
+
+               i++;
+
+               b.append_document_begin(key, key_len, child);
+               parse_impl(child, toks, v, i, i + children);
+               b.append_document_end(child);
+
+               lf_key = true;
+            }
+            break;
+         case JSMN_ARRAY:
+            break;
+         case JSMN_STRING:
+            if (lf_key) {
+               key = v + toks[i].start;
+               key_len = toks[i].end - toks[i].start;
+
+               lf_key = false;
+            } else {
+               value = v + toks[i].start;
+               value_len = toks[i].end - toks[i].start;
+
+               b.append_utf8(key, key_len, value, value_len);
+
+               lf_key = true;
+            }
+            break;
+         default:
+            break;
+      }
+
+   }
+}
+
+template <typename T>
+CONSTEXPR std::size_t parse(T b, const char *v, std::size_t len)
+{
+   using namespace jsmn;
+
+   jsmn_parser p = {};
+   jsmntok_t toks[1024] = {};
+
+   jsmn_init(&p);
+
+   int r = jsmn_parse(&p, v, len, toks, sizeof(toks)/sizeof(toks[0]));
+
+   if (r < 0) {
+      return 1;
+   }
+
+   int i = 1;
+
+   parse_impl(b, toks, v, i, r);
+
+   return b.length();
+}
+
+template <typename T>
+class from_json {
+public:
+#ifdef CONSTEXPR_OFF
+   CONSTEXPR from_json() : a(), l(0) {
+      l = parse<bson>(bson(a), T::str(), T::str_len());
+   }
+#else
+   CONSTEXPR from_json() : a() {
+      parse<bson>(bson(a), T::str(), T::str_len());
+   }
+#endif
+
+   CONSTEXPR const uint8_t *data () const {
+      return a;
+   }
+
+   CONSTEXPR std::size_t len() const {
+#ifdef CONSTEXPR_OFF
+      return l;
+#else
+      return sizeof(a);
+#endif
+   }
+
+private:
+#ifdef CONSTEXPR_OFF
+   std::uint8_t a[1024];
+   std::size_t l;
+#else
+   std::uint8_t a[parse<bson_sizer>(bson_sizer(), T::str(), T::str_len())];
+#endif
 };
 
 }
