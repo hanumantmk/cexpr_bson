@@ -25,6 +25,7 @@ enum class bson_type : uint8_t {
    b_array = 0x04,
    b_bool = 0x08,
    b_int32 = 0x10,
+   b_int64 = 0x12,
 };
 
 class bson {
@@ -41,6 +42,15 @@ class bson {
 
       data_view(ptr).store_le_int32(v);
       ptr += 4;
+
+      update_len();
+   }
+
+   CONSTEXPR void append_int64(const char *key, std::size_t klen, int64_t v) {
+      append_prefix(key, klen, bson_type::b_int64);
+
+      data_view(ptr).store_le_int64(v);
+      ptr += 8;
 
       update_len();
    }
@@ -142,6 +152,12 @@ class bson_sizer {
       append_prefix(key, klen, bson_type::b_int32);
 
       len += 4;
+   }
+
+   CONSTEXPR void append_int64(const char *key, std::size_t klen, int64_t) {
+      append_prefix(key, klen, bson_type::b_int64);
+
+      len += 8;
    }
 
    CONSTEXPR void append_bytes(const char *key, std::size_t klen, bson_type bt, uint8_t *, std::size_t vlen) {
@@ -312,7 +328,18 @@ CONSTEXPR void append_num(T& b, const char *key, std::size_t klen, const char *v
 
       b.append_bytes(key, klen, bson_type::b_double, buf, 8);
    } else {
-      b.append_int32(key, klen, atoi(v, vlen));
+      int64_t x = atoi(v, vlen);
+      int64_t y = x;
+
+      if (y < 0) {
+         y *= -1;
+      }
+
+      if (y >= (1ul << 32)) {
+         b.append_int64(key, klen, x);
+      } else {
+         b.append_int32(key, klen, x);
+      }
    }
 }
 

@@ -9,17 +9,6 @@ class data_view {
    public:
       CONSTEXPR data_view(uint8_t *b) : bytes(b) {}
 
-      CONSTEXPR uint32_t load_le_uint32() const {
-         uint32_t v = (
-            bytes[0] |
-            bytes[1] << 8 |
-            bytes[2] << 16 |
-            bytes[3] << 24
-         );
-
-         return v;
-      }
-
       CONSTEXPR void store_le_uint32(uint32_t v) {
          bytes[0] = v & 0xFF;
          bytes[1] = (v >> 8) & 0xFF;
@@ -27,16 +16,15 @@ class data_view {
          bytes[3] = (v >> 24) & 0xFF;
       }
 
-      CONSTEXPR int32_t load_le_int32() const {
-         uint32_t v = load_le_uint32();
-
-         if (v < 1u << 31) {
-            return v;
-         } else if (v == 1u << 31) {
-            return -(1 << 31);
-         } else {
-            return -(int32_t)(~v + 1);
-         }
+      CONSTEXPR void store_le_uint64(uint64_t v) {
+         bytes[0] = v & 0xFFul;
+         bytes[1] = (v >> 8) & 0xFFul;
+         bytes[2] = (v >> 16) & 0xFFul;
+         bytes[3] = (v >> 24) & 0xFFul;
+         bytes[4] = (v >> 32) & 0xFFul;
+         bytes[5] = (v >> 40) & 0xFFul;
+         bytes[6] = (v >> 48) & 0xFFul;
+         bytes[7] = (v >> 56) & 0xFFul;
       }
 
       CONSTEXPR void store_le_int32(int32_t v) {
@@ -51,6 +39,17 @@ class data_view {
          store_le_uint32(b);
       }
 
+      CONSTEXPR void store_le_int64(int64_t v) {
+         uint64_t b = 0;
+
+         if (v > 0) {
+            b = v;
+         } else {
+            b = 0xFFFFFFFFFFFFFFFFUL + v + 1;
+         }
+
+         store_le_uint64(b);
+      }
    private:
       uint8_t *bytes;
 };
