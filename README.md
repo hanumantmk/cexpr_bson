@@ -26,9 +26,39 @@ This basic library lays out a technique for using constexpr functions to create 
 ```c++
 int main ()
 {
-   CEXPR_BSON_FROM_JSON(bytes, "{\"foo\":\"bar\",\"bar\":\"baz\",\"baz\":15715755,\"neg\":-55, \"double\" : -0.012423}");
-   CEXPR_BSON_FROM_JSON(bytes2, "{\"a\":1,\"b\":2,\"c\":3,\"d\" : { \"key\" : \"value\", \"2nd\" : 35, \"array\" : [1, 2, 3, true, false, 0.0, -1152921504606846976, null] } }");
-   CEXPR_BSON_FROM_JSON(bytes3, "{\"only need\":\"length\"}");
+   CEXPR_BSON_FROM_JSON(bytes, R"json(
+      {
+         "foo"    : "bar",
+         "bar"    : "baz",
+         "baz"    : 15715755,
+         "neg"    : -55,
+         "double" : -0.012423
+      }
+   )json");
+   CEXPR_BSON_FROM_JSON(bytes2, R"json(
+      {
+         "a" : 1,
+         "b" : 2,
+         "c" : 3,
+         "d" : {
+            "key"   : "value",
+            "2nd"   : 35,
+            "array" : [
+               1, 2, 3,
+               true, false,
+               0.0,
+               -1152921504606846976,
+               null
+            ]
+         }
+      }
+   )json");
+
+   CEXPR_BSON_FROM_JSON(bytes3, R"json(
+      {
+         "only need" : "length"
+      }
+   )json");
 
    bson_iter bi(bytes.data());
    bson_iter bi2(bytes2.data());
